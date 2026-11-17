@@ -81,6 +81,43 @@ Then, in the content's **Settings > Runtime > Integrations**, add the Vault inte
 (or pass `CONTENT_GUID` to `create-integration.sh`). Changing a content's integrations stops its
 running processes; the next request starts one with `VAULT_TOKEN`.
 
+## Two integrations, two roles
+
+Each Connect Vault integration names one Vault role, and each role carries its own policy, so content
+gets exactly the permissions of the integration attached to it. To show it, run the setup a second
+time for a second role, create a second integration, and deploy the app twice:
+
+```bash
+# Vault: role connect-finance, accepting only sub=connect-finance, may read secret/finance/* only.
+CONNECT_SERVER_ADDRESS=https://connect.example.org/ CONNECT_SUBJECT=connect-finance \
+  CONNECT_POLICY=posit-connect-finance SECRET_PREFIX=finance \
+  DEMO_VALUE="Finance-only Secret Value 5678" ./vault/setup-vault.sh
+
+# Deploy a second copy of the app whose form defaults to finance/demo.
+rsconnect deploy fastapi --new -x docs --title "Vault secret demo (finance role)" \
+  -E DEMO_SECRET_PATH=finance/demo .
+
+# Connect: a second integration for that role and subject, attached to the second copy.
+NAME="Vault (finance role)" ROLE=connect-finance SUBJECT=connect-finance CONTENT_GUID=<guid> \
+  CONNECT_SERVER=https://connect.example.org CONNECT_API_KEY=... \
+  VAULT_ADDR=https://vault.example.org ./connect/create-integration.sh
+```
+
+Result (Connect 2026.10.0, Vault 2.2.2):
+
+| Content | Integration role | `secret/connect/demo` | `secret/finance/demo` |
+|---|---|---|---|
+| Vault secret demo | `connect` | read | **denied** |
+| Vault secret demo (finance role) | `connect-finance` | **denied** | read |
+
+The page shows each copy's role under the heading.
+
+**Give each integration its own subject**, and bind each role to it (`bound_subject`, which
+`setup-vault.sh` sets to the role name). The role is chosen by the administrator in the
+integration, and Vault also checks that the token was minted for that role. Tested: with the
+finance integration's subject changed to `connect`, Vault refused the login
+(`error validating token: invalid subject (sub) claim`) and the content didn't start.
+
 ## Things that bite
 
 - **`hvac.Client()` ignores `VAULT_NAMESPACE`.** Pass `namespace=os.environ.get("VAULT_NAMESPACE")`

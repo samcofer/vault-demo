@@ -97,11 +97,15 @@ PAGE = """<!doctype html>
   dt { color:var(--muted); }
   dd { margin:0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
   h2 { font-size:1rem; margin:0 0 14px; }
+  .role { display:inline-block; margin:0 0 14px; padding:4px 12px; border-radius:999px; font-size:.85rem;
+          background:#e8eff6; color:var(--accent); border:1px solid #c9d8e8; }
+  .role code { font-weight:600; }
 </style>
 </head>
 <body>
 <main>
   <h1>HashiCorp Vault secret demo</h1>
+  <div class="role" id="role"></div>
   <p class="lede">This content has no Vault credentials of its own. When it starts, Connect signs a short-lived
   identity token, <code>connect-session</code> exchanges it at Vault's JWT auth method, and the content
   receives <code>VAULT_TOKEN</code>.</p>
@@ -127,11 +131,14 @@ PAGE = """<!doctype html>
 <script>
 const defaults = JSON.parse(document.getElementById("defaults").textContent);
 const $ = (id) => document.getElementById(id);
+const esc = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 for (const k of ["mount", "path", "key"]) $(k).value = defaults[k];
+$("role").innerHTML = defaults.role
+  ? `Vault role <code>${esc(defaults.role)}</code> (from this content's Vault integration)`
+  : "No Vault integration attached";
 const preview = () => { $("preview").textContent = `${$("mount").value}/data/${$("path").value}`; };
 ["mount", "path"].forEach((k) => $(k).addEventListener("input", preview));
 preview();
-const esc = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;");
 
 $("form").addEventListener("submit", async (ev) => {
   ev.preventDefault();
@@ -151,6 +158,7 @@ $("form").addEventListener("submit", async (ev) => {
       ["Secret path", body.path + (body.key ? `  [${body.key}]` : "")],
       ["Secret version", body.version],
       ["Secret created", body.created_time],
+      ["Vault role", (body.token.meta || {}).role || "?"],
       ["Login path", body.token.path],
       ["Token policies", body.token.policies.join(", ")],
       ["Token TTL remaining", body.token.ttl + " s of " + body.token.creation_ttl + " s"],
@@ -174,7 +182,8 @@ $("form").addEventListener("submit", async (ev) => {
 @app.get("/", response_class=HTMLResponse)
 def index():
     # Embed the defaults as JSON; "</" is escaped so a value cannot close the script tag.
-    data = json.dumps(DEFAULTS).replace("</", "<\\/")
+    page_data = {**DEFAULTS, "role": os.environ.get("CONNECT_VAULT_ROLE", "")}
+    data = json.dumps(page_data).replace("</", "<\\/")
     return PAGE.replace("__DEFAULTS__", data)
 
 
@@ -249,8 +258,11 @@ def status():
     client = hvac.Client()
     with warnings.catch_warnings(record=True) as w:
         warnings.simplefilter("always")
-        response = client.secrets.kv.v2.read_secret_version(path="connect/database")
+        try:
+            response = client.secrets.kv.v2.read_secret_version(path="connect/database")
+            out["guide_example_secret_keys"] = sorted(response["data"]["data"].keys())
+        except VaultError as e:  # e.g. this content's role can't read connect/*
+            out["guide_example_error"] = f"{type(e).__name__}: {e}"
     out["guide_example_warnings"] = [str(x.message) for x in w]
-    out["guide_example_secret_keys"] = sorted(response["data"]["data"].keys())
     out["token"] = token_summary(client)
     return out
