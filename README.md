@@ -10,11 +10,27 @@ Vault's JWT auth method, and the process receives `VAULT_ADDR` and `VAULT_TOKEN`
 
 | Route | What it does |
 |---|---|
-| `/` | Demo page: **Retrieve secret from Vault** reads `secret/connect/demo` and shows the value plus where it came from (path, version, token policies, token TTL). |
-| `/secret` | JSON behind the button. |
+| `/` | Demo page: pick a KV v2 mount, secret path, and key, then **Retrieve secret from Vault**. Shows the value plus where it came from (path, version, token policies, token TTL). A path outside the token's policy shows Vault's denial. |
+| `/secret?mount=&path=&key=` | JSON behind the button. Each parameter defaults to the values below; an empty `key` returns every key at the path. |
 | `/status` | Diagnostics: the Vault-related environment (token redacted), the admin guide's `hvac` example run verbatim, and `lookup-self` on the token. |
 
 Tested with Connect 2026.10.0 and Vault Community Edition 2.2.2.
+
+![Demo app](docs/demo-app.png)
+
+### Defaults
+
+The form's starting values come from content environment variables (Connect: **Settings > Vars**):
+
+| Variable | Default |
+|---|---|
+| `DEMO_SECRET_MOUNT` | `secret` |
+| `DEMO_SECRET_PATH` | `connect/demo` |
+| `DEMO_SECRET_KEY` | `value` |
+
+Mount and path accept `/`-separated segments of letters, digits, `_`, `-`, and `.`
+(no `.` or `..` segments). The Vault policy on the Connect role is the real boundary: the app can
+read only what `posit-connect-secrets` allows (`secret/data/connect/*` with `setup-vault.sh`).
 
 ## Set up
 

@@ -1,15 +1,29 @@
 import datetime
+import json
 import os
+import re
 import warnings
 
 import hvac
+import requests
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
+from hvac.exceptions import Forbidden, InvalidPath, VaultError
 
 app = FastAPI()
 
-SECRET_MOUNT = "secret"
-SECRET_PATH = "connect/demo"
+# Defaults for the form. Set these as content environment variables (Vars) in
+# Connect to point the demo at a different secret without changing code.
+DEFAULTS = {
+    "mount": os.environ.get("DEMO_SECRET_MOUNT", "secret"),
+    "path": os.environ.get("DEMO_SECRET_PATH", "connect/demo"),
+    "key": os.environ.get("DEMO_SECRET_KEY", "value"),
+}
+
+# One or more "/"-separated segments of safe characters. "." and ".." are
+# rejected separately so a path cannot step outside the KV mount's API.
+PATH_RE = re.compile(r"^[A-Za-z0-9_.-]+(/[A-Za-z0-9_.-]+)*$")
+KEY_RE = re.compile(r"^[A-Za-z0-9_.-]*$")
 
 VARS = [
     "VAULT_ADDR",
@@ -31,8 +45,27 @@ def token_summary(client):
     look = client.auth.token.lookup_self()["data"]
     return {
         k: look.get(k)
-        for k in ("type", "policies", "ttl", "creation_ttl", "renewable", "meta", "display_name", "path")
+        for k in (
+            "type",
+            "policies",
+            "ttl",
+            "creation_ttl",
+            "renewable",
+            "meta",
+            "display_name",
+            "path",
+        )
     }
+
+
+def valid_path(value):
+    return bool(PATH_RE.match(value)) and all(
+        seg not in (".", "..") for seg in value.split("/")
+    )
+
+
+def error(status, message):
+    return JSONResponse(status_code=status, content={"error": message})
 
 
 PAGE = """<!doctype html>
@@ -49,10 +82,16 @@ PAGE = """<!doctype html>
   h1 { font-size: 1.6rem; margin: 0 0 6px; }
   p.lede { color: var(--muted); margin: 0 0 28px; line-height: 1.5; }
   .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:24px; margin-bottom:20px; }
+  form { display:grid; grid-template-columns: 140px 1fr 2fr; gap:12px 14px; align-items:end; margin-bottom:18px; }
+  label { display:flex; flex-direction:column; gap:6px; font-size:.85rem; color:var(--muted); }
+  input { font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.92rem;
+          padding:9px 10px; border:1px solid var(--line); border-radius:6px; color:var(--ink); }
+  .hint { grid-column: 1 / -1; font-size:.82rem; color:var(--muted); margin-top:-4px; }
   button { font-size:1rem; padding:12px 22px; border:0; border-radius:8px; background:var(--accent); color:#fff; cursor:pointer; }
   button:disabled { opacity:.6; cursor:progress; }
   .secret { margin-top:20px; padding:18px 20px; border-radius:8px; border:1px solid #b7dfc4; background:#eef8f1;
-            font-size:1.35rem; font-weight:600; color:var(--ok); display:none; }
+            font-size:1.35rem; font-weight:600; color:var(--ok); display:none; white-space:pre-wrap; word-break:break-word; }
+  .secret.object { font-size:.95rem; font-weight:500; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
   .error { margin-top:20px; padding:14px 18px; border-radius:8px; border:1px solid #f0b4b4; background:#fdf1f1; color:#a12a2a; display:none; }
   dl { display:grid; grid-template-columns: 190px 1fr; gap:8px 16px; margin:0; font-size:.92rem; }
   dt { color:var(--muted); }
@@ -68,7 +107,13 @@ PAGE = """<!doctype html>
   receives <code>VAULT_TOKEN</code>.</p>
 
   <div class="card">
-    <button id="get">Retrieve secret from Vault</button>
+    <form id="form">
+      <label>KV v2 mount<input id="mount" name="mount" autocomplete="off" spellcheck="false"></label>
+      <label>Secret path<input id="path" name="path" autocomplete="off" spellcheck="false"></label>
+      <label>Key (empty = all keys)<input id="key" name="key" autocomplete="off" spellcheck="false"></label>
+      <div class="hint">Reads <code id="preview"></code>. The token's Vault policy decides what is allowed.</div>
+    </form>
+    <button id="get" type="submit" form="form">Retrieve secret from Vault</button>
     <div class="secret" id="value"></div>
     <div class="error" id="error"></div>
   </div>
@@ -78,21 +123,32 @@ PAGE = """<!doctype html>
     <dl id="meta"></dl>
   </div>
 </main>
+<script id="defaults" type="application/json">__DEFAULTS__</script>
 <script>
-const btn = document.getElementById("get");
-btn.addEventListener("click", async () => {
-  btn.disabled = true;
-  const value = document.getElementById("value"), error = document.getElementById("error");
-  value.style.display = "none"; error.style.display = "none";
+const defaults = JSON.parse(document.getElementById("defaults").textContent);
+const $ = (id) => document.getElementById(id);
+for (const k of ["mount", "path", "key"]) $(k).value = defaults[k];
+const preview = () => { $("preview").textContent = `${$("mount").value}/data/${$("path").value}`; };
+["mount", "path"].forEach((k) => $(k).addEventListener("input", preview));
+preview();
+const esc = (v) => String(v).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+
+$("form").addEventListener("submit", async (ev) => {
+  ev.preventDefault();
+  const btn = $("get"), value = $("value"), err = $("error");
+  btn.disabled = true; value.style.display = "none"; err.style.display = "none";
+  const q = new URLSearchParams({ mount: $("mount").value, path: $("path").value, key: $("key").value });
   try {
-    const resp = await fetch("secret");  // relative: content is served under /content/<guid>/
+    const resp = await fetch("secret?" + q);  // relative: content is served under /content/<guid>/
     const body = await resp.json();
     if (!resp.ok) throw new Error(body.error || resp.statusText);
-    value.textContent = body.value;
+    const isObject = typeof body.value === "object";
+    value.textContent = isObject ? JSON.stringify(body.value, null, 2) : body.value;
+    value.className = "secret" + (isObject ? " object" : "");
     value.style.display = "block";
     const rows = [
       ["Vault address", body.vault_addr],
-      ["Secret path", body.path],
+      ["Secret path", body.path + (body.key ? `  [${body.key}]` : "")],
       ["Secret version", body.version],
       ["Secret created", body.created_time],
       ["Login path", body.token.path],
@@ -100,12 +156,11 @@ btn.addEventListener("click", async () => {
       ["Token TTL remaining", body.token.ttl + " s of " + body.token.creation_ttl + " s"],
       ["Read at", body.read_at],
     ];
-    document.getElementById("meta").innerHTML = rows.map(
-      ([k, v]) => `<dt>${k}</dt><dd>${String(v).replace(/</g, "&lt;")}</dd>`).join("");
-    document.getElementById("details").style.display = "block";
+    $("meta").innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
+    $("details").style.display = "block";
   } catch (e) {
-    error.textContent = "Vault read failed: " + e.message;
-    error.style.display = "block";
+    err.textContent = e.message;
+    err.style.display = "block";
   } finally {
     btn.disabled = false;
   }
@@ -118,35 +173,77 @@ btn.addEventListener("click", async () => {
 
 @app.get("/", response_class=HTMLResponse)
 def index():
-    return PAGE
+    # Embed the defaults as JSON; "</" is escaped so a value cannot close the script tag.
+    data = json.dumps(DEFAULTS).replace("</", "<\\/")
+    return PAGE.replace("__DEFAULTS__", data)
 
 
 @app.get("/secret")
-def secret():
-    try:
-        client = vault_client()
-        resp = client.secrets.kv.v2.read_secret_version(
-            mount_point=SECRET_MOUNT, path=SECRET_PATH, raise_on_deleted_version=True
+def secret(
+    mount: str = DEFAULTS["mount"],
+    path: str = DEFAULTS["path"],
+    key: str = DEFAULTS["key"],
+):
+    mount, path, key = mount.strip().strip("/"), path.strip().strip("/"), key.strip()
+    if not valid_path(mount):
+        return error(
+            400,
+            "Mount must be one or more path segments of letters, digits, '_', '-' or '.'.",
         )
-        return {
-            "value": resp["data"]["data"]["value"],
-            "path": f"{SECRET_MOUNT}/{SECRET_PATH}",
-            "version": resp["data"]["metadata"]["version"],
-            "created_time": resp["data"]["metadata"]["created_time"],
-            "vault_addr": os.environ.get("VAULT_ADDR"),
-            "token": token_summary(client),
-            "read_at": datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds"),
-        }
-    except Exception as e:  # surface Vault errors to the demo page
-        return JSONResponse(status_code=502, content={"error": f"{type(e).__name__}: {e}"})
+    if not valid_path(path):
+        return error(
+            400,
+            "Path must be one or more path segments of letters, digits, '_', '-' or '.'.",
+        )
+    if not KEY_RE.match(key):
+        return error(400, "Key may contain only letters, digits, '_', '-' and '.'.")
+
+    client = vault_client()
+    full = f"{mount}/data/{path}"
+    try:
+        resp = client.secrets.kv.v2.read_secret_version(
+            mount_point=mount, path=path, raise_on_deleted_version=True
+        )
+    except Forbidden:
+        try:
+            policies = ", ".join(token_summary(client)["policies"])
+        except VaultError:
+            policies = "unknown"
+        return error(
+            403, f"Vault denied reading {full}. This token's policies: {policies}."
+        )
+    except InvalidPath:
+        return error(404, f"No secret at {full} (or {mount}/ is not a KV v2 mount).")
+    except (VaultError, requests.RequestException) as e:  # surface to the demo page
+        return error(502, f"Vault read of {full} failed: {type(e).__name__}: {e}")
+
+    data = resp["data"]["data"] or {}
+    if key:
+        if key not in data:
+            keys = ", ".join(sorted(k for k in data if k)) or "none"
+            return error(404, f"Key '{key}' not found at {full}. Keys there: {keys}.")
+        value = data[key]
+    else:
+        value = data
+
+    return {
+        "value": value,
+        "path": f"{mount}/{path}",
+        "key": key,
+        "version": resp["data"]["metadata"]["version"],
+        "created_time": resp["data"]["metadata"]["created_time"],
+        "vault_addr": os.environ.get("VAULT_ADDR"),
+        "token": token_summary(client),
+        "read_at": datetime.datetime.now(datetime.UTC).isoformat(timespec="seconds"),
+    }
 
 
 @app.get("/status")
 def status():
     env = {k: os.environ.get(k) for k in VARS}
     if env["VAULT_TOKEN"]:
-        env["VAULT_TOKEN"] = "<set, %d chars>" % len(env["VAULT_TOKEN"])
-    out = {"pid": os.getpid(), "env": env}
+        env["VAULT_TOKEN"] = f"<set, {len(env['VAULT_TOKEN'])} chars>"
+    out = {"pid": os.getpid(), "env": env, "defaults": DEFAULTS}
 
     # Publisher example from the admin guide, verbatim.
     client = hvac.Client()
