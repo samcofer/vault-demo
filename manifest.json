@@ -6,10 +6,10 @@
     "entrypoint": "app"
   },
   "python": {
-    "version": "3.12.14",
+    "version": "3.15.2",
     "package_manager": {
       "name": "pip",
-      "version": "26.2.1",
+      "version": "26.3",
       "package_file": "requirements.txt"
     }
   },
@@ -21,19 +21,19 @@
       "checksum": "093a1aabb979e43543968629b491d589"
     },
     "README.md": {
-      "checksum": "3a843936f17f4f63d418c5e6630a7fb2"
+      "checksum": "61f84ff5477b039dbe5fae31607f0e00"
     },
     "app.py": {
-      "checksum": "eb7d4250f77e4dfbd7ec134154fe00cc"
+      "checksum": "904997160b74c84ee551c0658e72700e"
     },
     "connect/create-integration.sh": {
-      "checksum": "8f5744c65fff656157f5d83c636aee65"
+      "checksum": "28bec533bb71c64a5f5f131eec444be0"
     },
     "vault/reviewer-login.sh": {
-      "checksum": "168bc0db049dd2ca49471deb2c5ed707"
+      "checksum": "b971d84c70b3b0024bfe010eaa63c8d6"
     },
     "vault/setup-vault.sh": {
-      "checksum": "e0359fe91b19a0ae21810b4b9a7b877f"
+      "checksum": "bd8ec7598ee6bc1227308381f9772994"
     }
   }
 }

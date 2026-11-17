@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Optional: a userpass login for reviewing the configuration in the Vault UI
 # without handing out the root token. It can read everything and edit only the
-# demo secret (secret/connect/demo).
+# demo secrets (secret/connect/demo, secret/finance/demo).
 #   REVIEWER_USER      default: reviewer
 #   REVIEWER_PASSWORD  required; read from the environment so it stays out of argv history.
 set -euo pipefail
@@ -15,12 +15,18 @@ path "*" {
 }
 POLICY
 
-# Allow editing the demo secret, so a demo can change the value live.
+# Allow editing the demo secrets, so a demo can change the values live.
 vault policy write demo-editor - <<'POLICY'
 path "secret/data/connect/demo" {
   capabilities = ["create", "update", "patch", "read"]
 }
 path "secret/metadata/connect/demo" {
+  capabilities = ["read", "list"]
+}
+path "secret/data/finance/demo" {
+  capabilities = ["create", "update", "patch", "read"]
+}
+path "secret/metadata/finance/demo" {
   capabilities = ["read", "list"]
 }
 POLICY

@@ -8,6 +8,15 @@
 # methods, policies, and mounts.
 #   CONNECT_SERVER_ADDRESS  required. Connect's iss claim: IdentityProvider.Issuer if set,
 #                           otherwise Server.Address WITH its trailing slash.
+#   CONNECT_SUBJECT         role name and the JWT sub it accepts (default: connect).
+#                           Give each Connect integration its own subject and role.
+#   CONNECT_POLICY          policy name (default: posit-connect-secrets)
+#   SECRET_PREFIX           the role may read KV_MOUNT/SECRET_PREFIX/* (default: connect)
+#   DEMO_VALUE              value written to SECRET_PREFIX/demo if it doesn't exist
+#
+# Second role with different permissions:
+#   CONNECT_SUBJECT=connect-finance CONNECT_POLICY=posit-connect-finance \
+#   SECRET_PREFIX=finance DEMO_VALUE="Finance-only Secret Value 5678" ./vault/setup-vault.sh
 # Safe to re-run: existing mounts are kept and existing demo secrets are not overwritten.
 set -euo pipefail
 
@@ -17,6 +26,9 @@ CONNECT_POLICY="${CONNECT_POLICY:-posit-connect-secrets}"
 CONNECT_SUBJECT="${CONNECT_SUBJECT:-connect}"
 TOKEN_TTL="${TOKEN_TTL:-24h}"
 KV_MOUNT="${KV_MOUNT:-secret}"
+SECRET_PREFIX="${SECRET_PREFIX:-connect}"
+DEFAULT_DEMO_VALUE="Here's the Secret Value 1234"
+DEMO_VALUE="${DEMO_VALUE:-$DEFAULT_DEMO_VALUE}"
 
 # Fail early unless Connect's OIDC discovery document is reachable (Vault fetches it too).
 curl -fsS "${CONNECT_SERVER_ADDRESS%/}/.well-known/openid-configuration" >/dev/null
@@ -34,9 +46,9 @@ vault write "auth/${CONNECT_JWT_PATH}/config" \
   oidc_discovery_url="${CONNECT_SERVER_ADDRESS}" \
   bound_issuer="${CONNECT_SERVER_ADDRESS}"
 
-# Policy: Connect content may read secrets under ${KV_MOUNT}/connect/ and nothing else.
+# Policy: content using this role may read secrets under ${KV_MOUNT}/${SECRET_PREFIX}/ and nothing else.
 vault policy write "${CONNECT_POLICY}" - <<POLICY
-path "${KV_MOUNT}/data/connect/*" {
+path "${KV_MOUNT}/data/${SECRET_PREFIX}/*" {
   capabilities = ["read"]
 }
 POLICY
@@ -56,12 +68,12 @@ vault write "auth/${CONNECT_JWT_PATH}/role/${CONNECT_SUBJECT}" - <<ROLE
 }
 ROLE
 
-# Demo secret shown by the app's default form values; skipped if it already exists.
-vault kv get -mount="${KV_MOUNT}" connect/demo >/dev/null 2>&1 ||
-  vault kv put -mount="${KV_MOUNT}" connect/demo value="Here's the Secret Value 1234" >/dev/null
+# Demo secret for this role; skipped if it already exists.
+vault kv get -mount="${KV_MOUNT}" "${SECRET_PREFIX}/demo" >/dev/null 2>&1 ||
+  vault kv put -mount="${KV_MOUNT}" "${SECRET_PREFIX}/demo" value="${DEMO_VALUE}" >/dev/null
 
-# Second demo secret, read by the /status page; skipped if it already exists.
+# Secret read by the admin guide's example on the /status page; skipped if it already exists.
 vault kv get -mount="${KV_MOUNT}" connect/database >/dev/null 2>&1 ||
   vault kv put -mount="${KV_MOUNT}" connect/database username=demo password=demo-not-a-real-secret >/dev/null
 
-echo "Vault ready: auth path ${CONNECT_JWT_PATH}, role ${CONNECT_SUBJECT}, policy ${CONNECT_POLICY}"
+echo "Vault ready: auth path ${CONNECT_JWT_PATH}, role ${CONNECT_SUBJECT} (sub=${CONNECT_SUBJECT}), policy ${CONNECT_POLICY} -> ${KV_MOUNT}/${SECRET_PREFIX}/*"
