@@ -73,7 +73,7 @@ Set `VAULT_NAMESPACE` when your Vault uses namespaces (`admin` on HCP Vault Dedi
 ### 3. Deploy the content
 
 ```bash
-rsconnect deploy fastapi --title "Vault secret demo" .
+rsconnect deploy fastapi -x docs --title "Vault secret demo" .
 ```
 
 Or deploy from Git: `manifest.json` is committed.
