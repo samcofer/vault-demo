@@ -14,7 +14,7 @@ Vault's JWT auth method, and the process receives `VAULT_ADDR` and `VAULT_TOKEN`
 | `/secret?mount=&path=&key=` | JSON behind the button. Each parameter defaults to the values below; an empty `key` returns every key at the path. |
 | `/status` | Diagnostics: the Vault-related environment (token redacted), the admin guide's `hvac` example run verbatim, and `lookup-self` on the token. |
 
-Tested with Connect 2026.10.0 and Vault Community Edition 2.2.2.
+Tested with Connect 2026.10.0 and Vault 2.2.2.
 
 ![Demo app](docs/demo-app.png)
 
@@ -48,7 +48,7 @@ otherwise `Server.Address` **with** its trailing slash.
 
 The script enables a KV v2 mount at `secret/` and a JWT auth method at `jwt-posit-connect/`,
 writes the `posit-connect-secrets` policy and the `connect` role (24h tokens), and writes the
-demo secrets. It is safe to re-run.
+demo secrets if they don't exist yet. It is safe to re-run.
 
 Optional, for showing the config in the Vault UI without the root token:
 
@@ -68,11 +68,7 @@ CONNECT_SERVER=https://connect.example.org CONNECT_API_KEY=... \
 VAULT_ADDR=https://vault.example.org ./connect/create-integration.sh
 ```
 
-Set `VAULT_NAMESPACE` for HCP Vault or Vault Enterprise (`admin` on HCP Vault Dedicated).
-On Community Edition leave it unset; the script sends `""`.
-Through the dashboard, Community Edition can't save the form, because the Vault Namespace field is
-required there. Through the API the key must be present: leaving it out is rejected with
-`The config key vault_namespace is missing`.
+Set `VAULT_NAMESPACE` when your Vault uses namespaces (`admin` on HCP Vault Dedicated).
 
 ### 3. Deploy the content
 
@@ -81,8 +77,9 @@ rsconnect deploy fastapi --title "Vault secret demo" .
 ```
 
 Or deploy from Git: `manifest.json` is committed.
-Then, in the content's **Settings > Runtime > Integrations**, add the Vault integration.
-The token is minted when a process starts, so restart the content's processes after adding it.
+Then, in the content's **Settings > Runtime > Integrations**, add the Vault integration
+(or pass `CONTENT_GUID` to `create-integration.sh`). Changing a content's integrations stops its
+running processes; the next request starts one with `VAULT_TOKEN`.
 
 ## Things that bite
 
