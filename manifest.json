@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "locale": "C.UTF-8",
+  "metadata": {
+    "appmode": "python-fastapi",
+    "entrypoint": "app"
+  },
+  "python": {
+    "version": "3.12.14",
+    "package_manager": {
+      "name": "pip",
+      "version": "26.2.1",
+      "package_file": "requirements.txt"
+    }
+  },
+  "files": {
+    "requirements.txt": {
+      "checksum": "497d174b7afab496cbe988bb5f1f4b2b"
+    },
+    ".gitignore": {
+      "checksum": "cd444e830a10d052be703ddd5eb2a46d"
+    },
+    "README.md": {
+      "checksum": "9c233e47f2d7967cf5edd49c93de44f2"
+    },
+    "app.py": {
+      "checksum": "e117432c70cff63061d6b3d73cbe74a5"
+    },
+    "connect/create-integration.sh": {
+      "checksum": "8f5744c65fff656157f5d83c636aee65"
+    },
+    "vault/reviewer-login.sh": {
+      "checksum": "329aa70472428740359555ee106d8ba0"
+    },
+    "vault/setup-vault.sh": {
+      "checksum": "e0359fe91b19a0ae21810b4b9a7b877f"
+    }
+  }
+}
